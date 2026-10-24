@@ -1,0 +1,915 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>UDT: U-Net Diffusion Transformers</title>
+  <meta name="description" content="UDT: Reconciling U-Nets and Diffusion Transformers with Data-Adaptive Token Reduction. NeurIPS 2026 Spotlight.">
+
+  <!-- Link previews (Twitter / Slack / KakaoTalk use these) -->
+  <meta property="og:title" content="UDT: Reconciling U-Nets and Diffusion Transformers with Data-Adaptive Token Reduction">
+  <meta property="og:description" content="A U-Net diffusion transformer with data-adaptive token merging. ~40x faster convergence than SiT; FID 1.35 on ImageNet 256x256.">
+  <meta property="og:image" content="static/images/UDT.jpg">
+  <meta name="twitter:card" content="summary_large_image">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&family=STIX+Two+Text:ital@1&display=swap" rel="stylesheet">
+
+  <style>
+    /* ---------- Color tokens (light / dark) ---------- */
+    :root {
+      --bg: #fbfbfa;
+      --surface: #ffffff;
+      --surface-2: #f3f3f0;
+      --text: #17181a;
+      --muted: #5d6066;
+      --border: #e3e3de;
+      --accent: #7a1f2b;        /* UMN maroon */
+      --accent-soft: #f6e9eb;
+      --gold: #b8860b;
+      --teal: #0f7f72;
+      --green: #2e8b3e;
+      --violet: #7446d0;
+      --sit-bar: #9aa0aa; --udt-bar: #2f5bea; --grow-bad: #d64545;
+      --merge: #2f5bea;         /* blue = token merge (matches figure) */
+      --unmerge: #e0303a;       /* red  = token unmerge (matches figure) */
+      --code-bg: #f4f4f1;
+      --shadow: 0 1px 2px rgba(0,0,0,.04), 0 4px 16px rgba(0,0,0,.04);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --bg: #111214;
+        --surface: #191b1e;
+        --surface-2: #202226;
+        --text: #ececea;
+        --muted: #a2a5ab;
+        --border: #2d3035;
+        --accent: #e07a88;
+        --accent-soft: #2a1b1e;
+        --gold: #e0b44c;
+        --teal: #4fd1bd;
+        --green: #7ad98c;
+        --violet: #b79bff;
+        --sit-bar: #6b7280; --udt-bar: #6a88f2; --grow-bad: #ff7b7b;
+        --merge: #7c9bff;
+        --unmerge: #ff6f77;
+        --code-bg: #16181b;
+        --shadow: none;
+      }
+    }
+    :root[data-theme="dark"] {
+      --bg: #111214; --surface: #191b1e; --surface-2: #202226; --text: #ececea;
+      --muted: #a2a5ab; --border: #2d3035; --accent: #e07a88; --accent-soft: #2a1b1e;
+      --gold: #e0b44c; --teal: #4fd1bd; --green: #7ad98c; --violet: #b79bff; --sit-bar: #6b7280; --udt-bar: #6a88f2; --grow-bad: #ff7b7b; --merge: #7c9bff; --unmerge: #ff6f77; --code-bg: #16181b; --shadow: none;
+    }
+
+    /* ---------- Base ---------- */
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+      font-size: 17px;
+      line-height: 1.65;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    img { max-width: 100%; display: block; }
+    .wrap { max-width: 1040px; margin: 0 auto; padding: 0 16px; }
+    .narrow { max-width: 760px; }
+
+
+    /* ---------- Hero ---------- */
+    header.hero { padding: 64px 0 24px; text-align: center; }
+    .venue {
+      display: inline-block; font-size: 13px; font-weight: 600; letter-spacing: .04em;
+      text-transform: uppercase; color: var(--gold);
+      border: 1px solid color-mix(in srgb, var(--gold) 40%, transparent);
+      background: color-mix(in srgb, var(--gold) 8%, transparent);
+      padding: 4px 12px; border-radius: 999px; margin-bottom: 20px;
+    }
+    h1.title {
+      font-size: clamp(26px, 3.7vw, 40px); line-height: 1.18; font-weight: 800;
+      letter-spacing: -.025em; margin: 0 auto 8px; text-wrap: balance;
+    }
+    h1.title .name { color: var(--accent); }
+    .authors { font-size: 18px; margin: 24px 0 4px; }
+    .authors a { color: var(--text); font-weight: 500; text-decoration: underline; text-decoration-color: var(--accent);
+      text-decoration-thickness: 1.5px; text-underline-offset: 4px; }
+    .authors a:hover { color: var(--accent); }
+    .authors span + span::before { content: ",    "; color: var(--text); white-space: pre; }
+    .affil { color: var(--muted); font-size: 15px; }
+
+    .buttons { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin: 28px 0 8px; }
+    .btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: var(--text); color: var(--bg);
+      padding: 9px 18px; border-radius: 999px; font-size: 15px; font-weight: 600;
+      transition: transform .15s ease, opacity .15s ease;
+    }
+    .btn:hover { text-decoration: none; transform: translateY(-1px); opacity: .9; }
+    .btn svg { width: 17px; height: 17px; }
+    .btn.ghost { background: transparent; color: var(--text); border: 1px solid var(--border); }
+
+    /* ---------- Teaser animation ---------- */
+    .teaser {
+      position: relative; margin: 36px auto 0; max-width: 1160px;
+      border-radius: 18px; overflow: hidden; background: #0b0d12;
+      box-shadow: 0 10px 40px rgba(0,0,0,.18); border: 1px solid #1f2430;
+    }
+    .teaser canvas { display: block; width: 100%; aspect-ratio: 16 / 9; }
+    .teaser-ctrl { position: absolute; top: 12px; right: 12px; display: flex; gap: 6px; opacity: .55; transition: opacity .2s; }
+    .teaser:hover .teaser-ctrl, .teaser-ctrl:focus-within { opacity: 1; }
+    .teaser-ctrl button {
+      font: 600 12px Inter, sans-serif; color: #e9ecf1; cursor: pointer;
+      background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.16);
+      border-radius: 999px; padding: 5px 11px; backdrop-filter: blur(6px);
+    }
+    .teaser-ctrl button:hover { background: rgba(255,255,255,.16); }
+    @media (max-width: 600px) {
+      .teaser { margin-left: -16px; margin-right: -16px; border-radius: 0; border-left: 0; border-right: 0; }
+      .teaser canvas { aspect-ratio: 4 / 3; }
+      .teaser-ctrl button[data-act=record] { display: none; }
+    }
+
+    /* ---------- TL;DR + stats ---------- */
+    .tldr {
+      margin: 36px auto 0; font-size: 17.5px; text-align: center; text-wrap: pretty;
+    }
+    @media (min-width: 1200px) { .tldr { margin-left: -70px; margin-right: -70px; } }   /* one line per sentence */
+    .tldr b { color: var(--accent); }
+    .tldr em { font-weight: 700; color: var(--text); }
+    .glance { text-align: left; margin: 56px 0 -8px; }
+    .glance h2 { margin-bottom: 0; }
+    .stats {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px;
+      margin: 36px 0 0; text-align: left;
+    }
+    .stat {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+      padding: 18px 16px 14px; box-shadow: var(--shadow); display: flex; flex-direction: column;
+    }
+    .stat .tags { display: flex; gap: 6px; flex-wrap: wrap; }
+    .pill {
+      font: 600 11.5px "JetBrains Mono", monospace; letter-spacing: .02em;
+      padding: 2px 9px; border-radius: 999px; background: var(--surface-2); color: var(--muted);
+    }
+    .pill.acc { background: var(--accent-soft); color: var(--accent); }
+    .pill.cfg { background: color-mix(in srgb, var(--teal) 12%, transparent); color: var(--teal); }
+    .pill.cat { background: color-mix(in srgb, var(--green) 14%, transparent); color: var(--green); }
+    .pill.coco { background: color-mix(in srgb, var(--violet) 13%, transparent); color: var(--violet); }
+    .pill.hi  { background: color-mix(in srgb, var(--gold) 14%, transparent); color: var(--gold); }
+    .stat h3 { font-size: 15.5px; margin: 10px 0 0; line-height: 1.35; }
+        .rows { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 4px; }
+    .rows li {
+      display: grid; grid-template-columns: 3.6em 1fr; column-gap: 10px; align-items: center;
+      padding: 8px 10px; border-radius: 10px;
+    }
+    .rows .fid { font-size: 22px; font-weight: 800; letter-spacing: -.02em; font-variant-numeric: tabular-nums; line-height: 1.2; }
+    .rows .fid small { display: block; font-size: 10.5px; font-weight: 600; color: var(--muted); letter-spacing: .06em; }
+    .rows .what { font-size: 14px; color: var(--muted); line-height: 1.45; }
+    .rows .what b { color: var(--text); }
+    .rows li.base .fid { color: var(--muted); }
+    .rows li.best { background: var(--accent-soft); }
+    .rows li.best .fid, .rows li.best .fid small { color: var(--accent); }
+    .rows li.best .what { color: var(--text); font-weight: 700; }
+    .rows .ep { grid-column: 1 / -1; height: 4px; margin-top: 7px; border-radius: 99px; background: var(--surface-2); overflow: hidden; }
+    .rows.udt-box { margin-top: 10px; padding: 4px; border: 1.5px solid color-mix(in srgb, var(--accent) 35%, var(--border)); border-radius: 14px; }
+    .rows li.flip { grid-template-columns: 3.6em 1fr auto; }   /* text lines up with the other rows' "at ..." */
+    .rows li.flip .what { grid-column: 2; grid-row: 1; }
+    .rows li.flip .fid { grid-column: 3; grid-row: 1; text-align: right; }
+    .rows .trk { grid-column: 1 / -1; position: relative; height: 26px; margin-top: 4px; }
+    .rows .trk .ep { position: absolute; left: 0; right: 0; top: 4px; margin: 0; }
+    .rows .trk .tk { position: absolute; top: 0; width: 1.5px; height: 12px; background: var(--muted);
+      left: clamp(0px, calc(var(--x) - .75px), calc(100% - 1.5px)); }
+    .rows .trk .tl { position: absolute; top: 14px; left: var(--x); transform: translateX(-50%);
+      font-size: 10.5px; font-weight: 600; color: var(--muted); line-height: 1; font-variant-numeric: tabular-nums; }
+    .rows .trk .tl.l { transform: none; } .rows .trk .tl.r { transform: translateX(-100%); }
+    .rows .trk .shrink { position: absolute; left: 0; right: 0; top: 1px; height: 10px; --c: #7d838e;
+      filter: drop-shadow(0 0 2px rgba(255,255,255,.95)) drop-shadow(0 0 4px rgba(150,156,168,.55)); animation: shrink-glow 2.4s ease-in-out infinite; }
+    @keyframes shrink-glow { 50% { filter: drop-shadow(0 0 3px rgba(255,255,255,1)) drop-shadow(0 0 8px rgba(150,156,168,.85)); } }
+    @media (prefers-reduced-motion: reduce) { .rows .trk .shrink { animation: none; } }
+    .rows .shrink::after { content: ""; position: absolute; top: 4px; height: 2px; left: calc(var(--to) + 9px); right: 0; background: repeating-linear-gradient(90deg, var(--c) 0 6px, transparent 6px 10px); }
+    .rows .shrink::before { content: ""; position: absolute; top: 0; left: calc(var(--to) + 2px); border: 5px solid transparent; border-left: 0; border-right: 8px solid var(--c); }
+    .rows .shrink-lab { grid-column: 1 / -1; text-align: center; font-size: 12.5px; font-weight: 700; color: #6f7580; margin-top: -10px; }
+    .rows .ep i { display: block; height: 100%; width: var(--w); min-width: 4px; border-radius: 99px; background: var(--muted); opacity: .55; }
+    .rows li.best .ep i { background: var(--accent); opacity: 1; }
+    .stat .note { font-size: 12px; color: var(--muted); margin: 10px 2px 0; }
+    .stat .group {
+      font: 600 11px "JetBrains Mono", monospace; letter-spacing: .06em; color: var(--muted);
+      margin: 14px 2px -8px; display: flex; align-items: center; gap: 8px;
+    }
+    .stat .group::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+    .vae-box { margin-top: 12px; padding: 2px 4px 4px; border: 1.5px solid color-mix(in srgb, var(--accent) 35%, var(--border)); border-radius: 14px; }
+    .vae-box .group { margin: 8px 8px -4px; }
+    .vae-box + .vae-box { margin-top: 10px; }
+    /* ---------- Training-efficiency card ---------- */
+    .eff {
+      margin-top: 18px; text-align: left; background: var(--surface); border: 1px solid var(--border);
+      border-radius: 16px; padding: 18px 18px 14px; box-shadow: var(--shadow);
+    }
+    .pill.eff-tag { background: color-mix(in srgb, var(--merge) 12%, transparent); color: var(--merge); font-size: 13.5px; padding: 4px 12px; }
+    .eff h3 { font-size: 18px; margin: 12px 0 0; }
+    .eff-sub { font-size: 15px; color: var(--muted); margin: 6px 0 0; line-height: 1.55; }
+    .eff-sub b { color: var(--text); }
+    .eff-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px 28px; margin-top: 16px; }
+    .eff-size { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; }
+    .eff-size b { font-size: 20px; font-weight: 800; line-height: 1.1; }
+    .eff-size small { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .eff-row { display: grid; grid-template-columns: 52px 1fr; column-gap: 10px; align-items: center; margin-top: 6px; }
+    .eff-row .lab { font-size: 12.5px; font-weight: 600; color: var(--muted); }
+    .eff-row .lab.udt { font-weight: 800; color: var(--text); }
+    .eff-row .vals { grid-column: 2; font-size: 13.5px; margin-top: 3px; font-variant-numeric: tabular-nums; }
+    .eff .bar { position: relative; height: 12px; border-radius: 99px; background: var(--surface-2); overflow: hidden; }
+    .eff .bar i { position: absolute; left: 0; top: 0; bottom: 0; width: var(--w); border-radius: 99px; }
+    .eff .bar.sit i { background: #9aa0aa; }
+    .eff .bar.udt i { background: var(--merge); }
+    .eff .bar i.p1 { opacity: .35; }
+    .eff .x { font-size: 12px; font-weight: 700; padding: 1px 7px; border-radius: 999px; margin-left: 4px; }
+    .eff .x.bad { color: #d64545; background: color-mix(in srgb, #d64545 12%, transparent); }
+    .eff .x.good { color: var(--merge); background: color-mix(in srgb, var(--merge) 12%, transparent); }
+    .eff-legend { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 16px; font-size: 12.5px; color: var(--muted); }
+    .eff-legend .sw { display: inline-block; width: 22px; height: 8px; border-radius: 99px; background: var(--merge); margin-right: 6px; vertical-align: middle; }
+    .eff-legend .sw.p1 { opacity: .35; }
+    .eff-chart { display: block; width: 100%; max-width: 236px; height: auto; overflow: visible; }
+    .eff-chart text { font-family: inherit; text-anchor: middle; }
+    .eff-chart .base { stroke: var(--border); stroke-width: 1; }
+    .eff-chart .b-sit { fill: var(--sit-bar); }
+    .eff-chart .b-udt { fill: var(--udt-bar); }
+    .eff-chart .cap { font-size: 10.5px; fill: var(--muted); font-variant-numeric: tabular-nums; }
+    .eff-chart .xl { font-size: 11.5px; font-weight: 600; fill: var(--text); }
+    .eff-chart .xg { font-size: 10.5px; fill: var(--muted); }
+    .eff-chart .arw { fill: none; stroke-width: 1.75; stroke-linecap: round; }
+    .eff-chart .arw.bad, .ah.bad { stroke: var(--grow-bad); }
+    .eff-chart .arw.good, .ah.good { stroke: var(--udt-bar); }
+    .ah.bad { fill: var(--grow-bad); stroke: none; }
+    .ah.good { fill: var(--udt-bar); stroke: none; }
+    .eff-chart .chip.bad { fill: color-mix(in srgb, var(--grow-bad) 14%, var(--surface)); }
+    .eff-chart .chip.good { fill: color-mix(in srgb, var(--udt-bar) 14%, var(--surface)); }
+    .eff-chart .chip-t { font-size: 12px; font-weight: 800; }
+    .eff-chart .chip-t.bad { fill: var(--grow-bad); }
+    .eff-chart .chip-t.good { fill: var(--udt-bar); }
+    .eff-legend .sw.sit { background: var(--sit-bar); opacity: 1; }
+    .eff-legend .sw.udt { background: var(--udt-bar); opacity: 1; }
+    @media (max-width: 760px) {
+      .eff-grid { grid-template-columns: 1fr; }
+    }
+    .stats-note { font-size: 16px; color: var(--muted); margin: 14px 2px 0; text-align: left; }
+
+    /* ---------- Sections ---------- */
+    section { padding: 64px 0 8px; }
+    .eyebrow {
+      font-family: "JetBrains Mono", monospace; font-size: 15px; font-weight: 700; color: var(--accent);
+      letter-spacing: .06em; margin-bottom: 8px;
+    }
+    h2 { font-size: 30px; line-height: 1.2; font-weight: 800; letter-spacing: -.02em; margin: 0 0 18px; }
+    h3 { font-size: 18px; font-weight: 700; margin: 0 0 6px; }
+    p { margin: 0 0 14px; text-wrap: pretty; }
+    .muted { color: var(--muted); }
+
+    figure { margin: 24px 0; }
+    .figbox {
+      background: #fff;               /* figures have white backgrounds; keep them white in dark mode */
+      border: 1px solid var(--border); border-radius: 14px; padding: 18px;
+      box-shadow: var(--shadow);
+    }
+    figcaption { color: var(--muted); font-size: 14.5px; margin-top: 10px; line-height: 1.55; }
+
+    .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 24px; }
+    .cards.four { grid-template-columns: repeat(4, 1fr); }
+    .card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+      padding: 18px; box-shadow: var(--shadow);
+    }
+    .card p { font-size: 15px; color: var(--muted); margin: 0; line-height: 1.55; }
+    .card .tag {
+      display: inline-block; font-family: "JetBrains Mono", monospace; font-size: 12px;
+      padding: 2px 8px; border-radius: 6px; margin-bottom: 10px;
+      background: var(--surface-2); color: var(--muted);
+    }
+    .card .tag.merge   { color: var(--merge);   background: color-mix(in srgb, var(--merge) 12%, transparent); }
+    .card .tag.unmerge { color: var(--unmerge); background: color-mix(in srgb, var(--unmerge) 12%, transparent); }
+
+    .cards.dropin { grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    .card-split { border: 0; border-top: 2px solid var(--border); margin: 16px 0 14px; }
+    .cards.dropin .card { padding: 16px 14px; }
+    table.mini small.ep { display: block; font-size: 11.5px; font-weight: 500; color: var(--muted); }
+    .card .tags { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+    .card h3 + table.mini { margin-top: 8px; }
+    table.mini th.cond { text-align: left; font-weight: 500; }
+    .card .extra { font-size: 13px; margin-top: 10px; line-height: 1.5; }
+    .card .extra b { color: var(--text); }
+    table.mini { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+    table.mini th, table.mini td { padding: 6px 5px; white-space: normal; background: none; }
+    table.mini th { font-size: 11.5px; text-transform: none; letter-spacing: .02em; border-bottom: 1px solid var(--border); }
+    table.mini td { color: var(--muted); border-bottom: 0; }
+    table.mini tbody + tbody tr:first-child td { border-top: 2px solid var(--muted); }
+    table.mini .v { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; width: 1%; padding-left: 10px; }
+    table.mini tr.u td { color: var(--text); font-weight: 700; background: var(--accent-soft); }
+    table.mini tr.u td.v { color: var(--accent); }
+    table.mini tr.u td.epc { color: var(--muted); font-weight: 400; }   /* epoch/iter: plain, not highlighted */
+    .stat h3 + table.mini { margin-top: 8px; }
+    .stat .rows + table.mini { margin-top: 14px; }
+    table.mini.tight { font-size: 12.5px; }
+    table.mini.tight th, table.mini.tight td { padding: 6px 3px; }
+    table.mini.tight td:first-child { white-space: nowrap; }
+    table.mini.tight .v { padding-left: 4px; }
+    table.mini tr.u td:first-child { border-radius: 8px 0 0 8px; }
+    table.mini tr.u td:last-child { border-radius: 0 8px 8px 0; }
+
+    /* ---------- Interactive token explorer ---------- */
+    .explorer {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+      padding: 20px; box-shadow: var(--shadow); margin-top: 24px;
+    }
+    .explorer .panes { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+    .pane .imgwrap { border-radius: 10px; overflow: hidden; aspect-ratio: 1; background: #6b8bb8; }
+    .pane .imgwrap img { width: 100%; height: 100%; object-fit: cover; transition: opacity .2s; }
+    .pane .cap { display: flex; justify-content: space-between; align-items: baseline; margin-top: 8px; font-size: 14px; }
+    .pane .cap b { font-weight: 600; }
+    .pane .cap .t { font-family: "JetBrains Mono", monospace; color: var(--muted); }
+    .controls { display: flex; align-items: center; gap: 14px; margin-top: 18px; flex-wrap: wrap; }
+    .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 999px; padding: 3px; background: var(--surface-2); }
+    .seg button {
+      border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 14px; font-weight: 600;
+      padding: 6px 14px; border-radius: 999px; cursor: pointer;
+    }
+    .seg button[aria-pressed="true"] { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+    .meter { flex: 1; min-width: 200px; }
+    .meter input[type=range] { width: 100%; accent-color: var(--merge); margin: 0; }
+    .meter .lab { font-size: 13px; color: var(--muted); margin-top: 4px; font-family: "JetBrains Mono", monospace; }
+    .playbtn {
+      width: 38px; height: 38px; flex: none; border-radius: 50%; border: 1px solid var(--border);
+      background: var(--surface-2); color: var(--text); cursor: pointer; font-size: 14px;
+    }
+
+    /* ---------- Tables ---------- */
+    .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); box-shadow: var(--shadow); margin-top: 20px; }
+    table { width: 100%; border-collapse: collapse; font-size: 15px; font-variant-numeric: tabular-nums; }
+    th, td { padding: 11px 16px; text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; }
+    th { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; background: var(--surface-2); }
+    tr:last-child td { border-bottom: 0; }
+    td.num, th.num { text-align: right; }
+    tr.best td { background: var(--accent-soft); }
+    tr.best td.num { font-weight: 800; color: var(--accent); }
+    .yes { color: var(--accent); font-weight: 600; }
+
+    /* ---------- Code / BibTeX ---------- */
+    pre {
+      position: relative; background: var(--code-bg); border: 1px solid var(--border); border-radius: 12px;
+      padding: 18px 20px; overflow-x: auto; font-family: "JetBrains Mono", monospace; font-size: 13.5px; line-height: 1.6;
+      margin: 14px 0;
+    }
+    .copy {
+      position: absolute; top: 10px; right: 10px; font: 600 12px Inter, sans-serif; cursor: pointer;
+      background: var(--surface); color: var(--muted); border: 1px solid var(--border); border-radius: 8px; padding: 4px 10px;
+    }
+    .copy:hover { color: var(--text); }
+
+    footer { margin-top: 80px; padding: 32px 0 48px; border-top: 1px solid var(--border); color: var(--muted); font-size: 14px; }
+    footer .wrap { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+
+    /* ---------- Responsive ---------- */
+    @media (max-width: 760px) {
+      body { font-size: 16px; }
+      header.hero { padding-top: 40px; }
+      .stats, .cards, .cards.four, .cards.dropin { grid-template-columns: 1fr; }
+      .explorer .panes { grid-template-columns: 1fr 1fr; }
+      .explorer .panes .pane:first-child { grid-column: span 2; max-width: 50%; margin: 0 auto; }
+      h2 { font-size: 25px; }
+    }
+    @media (max-width: 900px) {
+      .cards.dropin { grid-template-columns: 1fr; }
+    }
+    @media (min-width: 761px) and (max-width: 960px) {
+      .cards.four { grid-template-columns: repeat(2, 1fr); }
+    }
+  </style>
+</head>
+<body>
+
+<!-- =============================== HERO =============================== -->
+<header class="hero">
+  <div class="wrap">
+    <div class="venue">NeurIPS 2026 · Spotlight</div>
+    <h1 class="title"><span class="name">UDT</span>: Reconciling U-Nets and Diffusion Transformers<br>with Data-Adaptive Token Reduction</h1>
+
+    <div class="authors">
+      <span><a href="https://scholar.google.com/citations?user=Ou4ff9kAAAAJ&amp;hl=en" target="_blank" rel="noopener">Junno Yun</a></span><span><a href="https://utkualcalar.github.io/" target="_blank" rel="noopener">Yaşar Utku Alçalar</a></span><span><a href="https://imagine.umn.edu/people/mehmet-akcakaya" target="_blank" rel="noopener">Mehmet Akçakaya</a></span>
+    </div>
+    <div class="affil">University of Minnesota</div>
+
+    <div class="buttons">
+      <a class="btn" href="https://arxiv.org/abs/2608.01298">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+        arXiv
+      </a>
+      <a class="btn" href="https://github.com/JN-Yun/UDT">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 .5C5.65.5.5 5.65.5 12a11.5 11.5 0 0 0 7.86 10.92c.58.1.79-.25.79-.56v-2c-3.2.7-3.87-1.37-3.87-1.37-.52-1.33-1.28-1.69-1.28-1.69-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.56-.29-5.25-1.28-5.25-5.69 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.77 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.84 1.19 3.1 0 4.42-2.7 5.4-5.27 5.68.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5z"/></svg>
+        Code
+      </a>
+      <a class="btn ghost" href="https://www.dropbox.com/scl/fo/9jwmy80qztwxidp8pf38c/ANYdHxSdi2flr6-OCujlcJs?rlkey=dl7llhhyr58jcrpd5s3pt4n9z&amp;dl=0">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="M3.3 7L12 12l8.7-5M12 22V12"/></svg>
+        Checkpoints
+      </a>
+      <a class="btn ghost" href="#citation">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.76-2-2-2H4c-1.25 0-2 .75-2 1.97V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .01-1 1.03V20c0 1 0 1 1 1z"/><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.76-2-2-2h-4c-1.25 0-2 .75-2 1.97V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z"/></svg>
+        BibTeX
+      </a>
+    </div>
+
+    <!-- 3D teaser animation (static/js/unet3d.js). "Download video" records one loop as MP4/WebM. -->
+    <div class="teaser" id="teaser">
+      <canvas aria-label="Animation: UDT merges tokens in the encoder (256 to 112), unmerges them in the decoder, folds into a 3D U-Net, and connects matching levels with skip connections."></canvas>
+      <div class="teaser-ctrl">
+        <button data-act="play">Pause</button>
+        <button data-act="replay">Replay</button>
+        <button data-act="record" title="Record one loop at 1920×1080">Download video</button>
+      </div>
+    </div>
+
+    <p class="tldr">
+      <b>UDT</b> turns a Diffusion Transformer into a <b>U-Net</b> using <b>data-adaptive token merging/unmerging</b> while keeping token dimensions fixed.<br>
+      It preserves compatibility with existing DiT pipelines while <em>substantially accelerating convergence and reducing computational costs</em>.
+    </p>
+
+    <div class="glance">
+      <div class="eyebrow">AT A GLANCE</div>
+      <h2>Generation quality &amp; computational efficiency</h2>
+    </div>
+
+    <!-- Headline results: FID-50K, class-conditional ImageNet. Bars in the first card = training epochs (linear, max 1400). -->
+    <div class="stats">
+      <div class="stat">
+        <div class="tags"><span class="pill acc">ImageNet 256×256</span><span class="pill">w/o CFG</span></div>
+        <h3>FID-50K, class-conditional generation</h3>
+        <ul class="rows">
+          <li class="base flip"><span class="fid"><small>FID</small>7.9</span><span class="what">at 1400 epochs (SiT)</span><span class="trk" aria-hidden="true"><span class="ep"><i style="--w:100%"></i></span><span class="tk" style="--x:0%"></span><b class="tl l" style="--x:0%">0</b><span class="tk" style="--x:100%"></span><b class="tl r" style="--x:100%">1400</b></span></li>
+        </ul>
+        <ul class="rows udt-box">
+          <li><span class="fid"><small>FID</small>7.7</span><span class="what">at 80 epochs (<b>UDT</b>)</span><span class="trk" aria-hidden="true"><span class="ep"><i style="--w:5.7%"></i></span><span class="tk" style="--x:5.7%"></span><b class="tl c" style="--x:5.7%">80</b></span></li>
+          <li><span class="fid"><small>FID</small>7.0</span><span class="what">at 60 epochs (<b>UDT<sup>+</sup></b>)</span><span class="trk" aria-hidden="true"><span class="ep"><i style="--w:4.3%"></i></span><span class="tk" style="--x:4.3%"></span><b class="tl c" style="--x:4.3%">60</b></span></li>
+          <li class="best"><span class="fid"><small>FID</small>7.6</span><span class="what">at 40 epochs<br>(UDT<sup>+</sup> with REPA)</span><span class="trk" aria-hidden="true"><span class="ep"><i style="--w:2.9%"></i></span><span class="tk" style="--x:2.9%"></span><b class="tl c" style="--x:2.9%">40</b><span class="shrink" style="--to:2.9%"></span></span><span class="shrink-lab">~35× faster</span></li>
+        </ul>
+        <p class="note">Bars: training epochs, linear scale.</p>
+      </div>
+
+      <div class="stat">
+        <div class="tags"><span class="pill acc">ImageNet 256×256</span><span class="pill cfg">with CFG</span></div>
+        <h3>FID-50K, class-conditional generation</h3>
+        <div class="vae-box">
+          <div class="group">SD-VAE</div>
+          <ul class="rows">
+          <li><span class="fid"><small>FID</small>1.41</span><span class="what">&amp; IS 307.4 at 500 epochs (<b>UDT</b>)</span></li>
+          <li><span class="fid"><small>FID</small>1.42</span><span class="what">&amp; IS 308.4 at 350 epochs (<b>UDT<sup>+</sup></b>), <em>without REPA</em></span></li>
+          <li class="best"><span class="fid"><small>FID</small>1.38</span><span class="what">&amp; IS 306.3 at 320 epochs (UDT<sup>+</sup> with REPA)</span></li>
+          </ul>
+        </div>
+        <div class="vae-box">
+          <div class="group">VA-VAE</div>
+          <ul class="rows">
+          <li class="best"><span class="fid"><small>FID</small>1.35</span><span class="what">&amp; IS 322.0 at 500 epochs (UDT<sup>+</sup>)</span></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="stat">
+        <div class="tags"><span class="pill hi">ImageNet 512×512</span><span class="pill cfg">with CFG</span></div>
+        <h3>FID-50K, class-conditional generation</h3>
+        <ul class="rows">
+          <li class="best"><span class="fid"><small>FID</small>1.58</span><span class="what">&amp; IS 327.7 at 200 epochs (UDT<sup>+</sup>), <em>without REPA</em></span></li>
+        </ul>
+        <table class="mini tight">
+          <thead><tr><th></th><th class="v">Epoch</th><th class="v">GFLOPs</th><th class="v">FID↓</th><th class="v">IS↑</th></tr></thead>
+          <tbody>
+            <tr><td>SiT-XL/2</td><td class="v">600</td><td class="v">524.6</td><td class="v">2.62</td><td class="v">252.2</td></tr>
+            <tr><td>SiT-XL/2 + REPA</td><td class="v">200</td><td class="v">524.6</td><td class="v">2.10</td><td class="v">274.6</td></tr>
+          </tbody>
+          <tbody>
+            <tr class="u"><td>UDT-XL/2<sup>+</sup></td><td class="v">100</td><td class="v">158.1</td><td class="v">1.63</td><td class="v">320.5</td></tr>
+            <tr class="u"><td>UDT-XL/2<sup>+</sup></td><td class="v">200</td><td class="v">158.1</td><td class="v">1.58</td><td class="v">327.7</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <p class="stats-note">* Note: FID samples are generated by randomly sampling class labels, i.e., without class-balanced sampling.</p>
+    <!-- Computational benefits: GFLOPs bar charts per model size (256x256 left, 512x512 right). Arrows: x vs SiT at 256x256. -->
+    <div class="eff">
+      <div class="tags"><span class="pill eff-tag">Computational benefits</span></div>
+      <h3>Compute stays low as resolution grows</h3>
+      <p class="eff-sub">
+        Going from 256×256 to 512×512 raises the token count 4× (T = 256 → 1024).<br>
+        SiT at 512×512 needs ~4.5× the GFLOPs, while <b>UDT needs only 1.3–2.2× because token merging shortens the sequence.</b>
+      </p>
+      <!-- Previous horizontal-bar version (kept for reference)
+      <div class="eff-grid">
+        <div class="eff-col">
+          <div class="eff-size"><b>B</b></div>
+          <div class="eff-row"><span class="lab">SiT-B</span>
+            <div class="bar sit"><i class="p1" style="--w:100%"></i><i class="p2" style="--w:21.6%"></i></div>
+            <div class="vals">23.0 → 106.4 <span class="x bad">4.6×</span></div></div>
+          <div class="eff-row"><span class="lab udt">UDT-B</span>
+            <div class="bar udt"><i class="p1" style="--w:46.8%"></i><i class="p2" style="--w:16.6%"></i></div>
+            <div class="vals">17.7 → 49.8 <span class="x good">2.2×</span></div></div>
+        </div>
+        <div class="eff-col">
+          <div class="eff-size"><b>L</b></div>
+          <div class="eff-row"><span class="lab">SiT-L</span>
+            <div class="bar sit"><i class="p1" style="--w:100%"></i><i class="p2" style="--w:22.4%"></i></div>
+            <div class="vals">80.7 → 361.0 <span class="x bad">4.5×</span></div></div>
+          <div class="eff-row"><span class="lab udt">UDT-L</span>
+            <div class="bar udt"><i class="p1" style="--w:32.2%"></i><i class="p2" style="--w:17.1%"></i></div>
+            <div class="vals">61.9 → 116.1 <span class="x good">1.4×</span></div></div>
+        </div>
+        <div class="eff-col">
+          <div class="eff-size"><b>XL</b></div>
+          <div class="eff-row"><span class="lab">SiT-XL</span>
+            <div class="bar sit"><i class="p1" style="--w:100%"></i><i class="p2" style="--w:22.6%"></i></div>
+            <div class="vals">118.6 → 524.6 <span class="x bad">4.4×</span></div></div>
+          <div class="eff-row"><span class="lab udt">UDT-XL</span>
+            <div class="bar udt"><i class="p1" style="--w:30.1%"></i><i class="p2" style="--w:17.5%"></i></div>
+            <div class="vals">91.6 → 158.1 <span class="x good">1.3×</span></div></div>
+        </div>
+      </div>
+      <div class="eff-legend">
+        <span>GFLOPs</span><span><i class="sw p2"></i>256×256 · T = 256</span>
+        <span><i class="sw p1"></i>512×512 · T = 1024</span>
+        <span>× = GFLOPs at 512×512 relative to SiT at 256×256</span>
+      </div>
+      -->
+      <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+        <defs>
+          <marker id="ah-bad" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="4.5" markerHeight="4.5" orient="auto-start-reverse"><path class="ah bad" d="M0,0 L10,5 L0,10 z"/></marker>
+          <marker id="ah-good" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="4.5" markerHeight="4.5" orient="auto-start-reverse"><path class="ah good" d="M0,0 L10,5 L0,10 z"/></marker>
+        </defs>
+      </svg>
+      <div class="eff-grid">
+        <div class="eff-col">
+          <div class="eff-size"><b>B</b></div>
+          <svg class="eff-chart" viewBox="30 6 186 226" role="img"
+               aria-label="B: GFLOPs at 256×256 — UDT 17.7, SiT 23.0; at 512×512 — UDT 49.8, SiT 106.4. Relative to SiT at 256×256, SiT grows 4.6×, UDT 2.2×.">
+            <line class="base" x1="40" x2="210" y1="190" y2="190"/>
+            <g><title>UDT-B · 256×256: 17.7 GFLOPs</title><path class="b-udt" d="M48.0,190 V174.4 Q48.0,170.4 52.0,170.4 H68.0 Q72.0,170.4 72.0,174.4 V190 Z"/><text class="cap" x="60" y="164.4">17.7</text></g>
+            <g><title>SiT-B · 256×256: 23.0 GFLOPs</title><path class="b-sit" d="M78.0,190 V168.5 Q78.0,164.5 82.0,164.5 H98.0 Q102.0,164.5 102.0,168.5 V190 Z"/><text class="cap" x="90" y="158.5">23.0</text></g>
+            <g><title>UDT-B · 512×512: 49.8 GFLOPs</title><path class="b-udt" d="M148.0,190 V138.8 Q148.0,134.8 152.0,134.8 H168.0 Q172.0,134.8 172.0,138.8 V190 Z"/><text class="cap" x="160" y="128.8">49.8</text></g>
+            <g><title>SiT-B · 512×512: 106.4 GFLOPs</title><path class="b-sit" d="M178.0,190 V76.0 Q178.0,72.0 182.0,72.0 H198.0 Q202.0,72.0 202.0,76.0 V190 Z"/><text class="cap" x="190" y="66.0">106.4</text></g>
+            <path class="arw bad" d="M90.0,145.5 C96.0,24.0 190.0,24.0 190.0,54.0" marker-end="url(#ah-bad)"/>
+            <path class="arw good" d="M90.0,145.5 C96.0,94.8 160.0,94.8 160.0,116.8" marker-end="url(#ah-good)"/>
+            <rect class="chip bad" x="123.3" y="29.9" width="37.8" height="17" rx="8.5"/><text class="chip-t bad" x="142.2" y="42.4">4.6×</text>
+            <rect class="chip good" x="108.3" y="90.9" width="37.8" height="17" rx="8.5"/><text class="chip-t good" x="127.2" y="103.4">2.2×</text>
+            <text class="xl" x="60" y="207">UDT</text><text class="xl" x="90" y="207">SiT</text>
+            <text class="xl" x="160" y="207">UDT</text><text class="xl" x="190" y="207">SiT</text>
+            <text class="xg" x="75" y="225">256×256</text><text class="xg" x="175" y="225">512×512</text>
+          </svg>
+        </div>
+        <div class="eff-col">
+          <div class="eff-size"><b>L</b></div>
+          <svg class="eff-chart" viewBox="30 6 186 226" role="img"
+               aria-label="L: GFLOPs at 256×256 — UDT 61.9, SiT 80.7; at 512×512 — UDT 116.1, SiT 361.0. Relative to SiT at 256×256, SiT grows 4.5×, UDT 1.4×.">
+            <line class="base" x1="40" x2="210" y1="190" y2="190"/>
+            <g><title>UDT-L · 256×256: 61.9 GFLOPs</title><path class="b-udt" d="M48.0,190 V173.8 Q48.0,169.8 52.0,169.8 H68.0 Q72.0,169.8 72.0,173.8 V190 Z"/><text class="cap" x="60" y="163.8">61.9</text></g>
+            <g><title>SiT-L · 256×256: 80.7 GFLOPs</title><path class="b-sit" d="M78.0,190 V167.6 Q78.0,163.6 82.0,163.6 H98.0 Q102.0,163.6 102.0,167.6 V190 Z"/><text class="cap" x="90" y="157.6">80.7</text></g>
+            <g><title>UDT-L · 512×512: 116.1 GFLOPs</title><path class="b-udt" d="M148.0,190 V156.1 Q148.0,152.1 152.0,152.1 H168.0 Q172.0,152.1 172.0,156.1 V190 Z"/><text class="cap" x="160" y="146.1">116.1</text></g>
+            <g><title>SiT-L · 512×512: 361.0 GFLOPs</title><path class="b-sit" d="M178.0,190 V76.0 Q178.0,72.0 182.0,72.0 H198.0 Q202.0,72.0 202.0,76.0 V190 Z"/><text class="cap" x="190" y="66.0">361.0</text></g>
+            <path class="arw bad" d="M90.0,144.6 C96.0,24.0 190.0,24.0 190.0,54.0" marker-end="url(#ah-bad)"/>
+            <path class="arw good" d="M90.0,144.6 C96.0,112.1 160.0,112.1 160.0,134.1" marker-end="url(#ah-good)"/>
+            <rect class="chip bad" x="123.3" y="29.8" width="37.8" height="17" rx="8.5"/><text class="chip-t bad" x="142.2" y="42.3">4.5×</text>
+            <rect class="chip good" x="108.3" y="105.9" width="37.8" height="17" rx="8.5"/><text class="chip-t good" x="127.2" y="118.4">1.4×</text>
+            <text class="xl" x="60" y="207">UDT</text><text class="xl" x="90" y="207">SiT</text>
+            <text class="xl" x="160" y="207">UDT</text><text class="xl" x="190" y="207">SiT</text>
+            <text class="xg" x="75" y="225">256×256</text><text class="xg" x="175" y="225">512×512</text>
+          </svg>
+        </div>
+        <div class="eff-col">
+          <div class="eff-size"><b>XL</b></div>
+          <svg class="eff-chart" viewBox="30 6 186 226" role="img"
+               aria-label="XL: GFLOPs at 256×256 — UDT 91.6, SiT 118.6; at 512×512 — UDT 158.1, SiT 524.6. Relative to SiT at 256×256, SiT grows 4.4×, UDT 1.3×.">
+            <line class="base" x1="40" x2="210" y1="190" y2="190"/>
+            <g><title>UDT-XL · 256×256: 91.6 GFLOPs</title><path class="b-udt" d="M48.0,190 V173.4 Q48.0,169.4 52.0,169.4 H68.0 Q72.0,169.4 72.0,173.4 V190 Z"/><text class="cap" x="60" y="163.4">91.6</text></g>
+            <g><title>SiT-XL · 256×256: 118.6 GFLOPs</title><path class="b-sit" d="M78.0,190 V167.3 Q78.0,163.3 82.0,163.3 H98.0 Q102.0,163.3 102.0,167.3 V190 Z"/><text class="cap" x="90" y="157.3">118.6</text></g>
+            <g><title>UDT-XL · 512×512: 158.1 GFLOPs</title><path class="b-udt" d="M148.0,190 V158.4 Q148.0,154.4 152.0,154.4 H168.0 Q172.0,154.4 172.0,158.4 V190 Z"/><text class="cap" x="160" y="148.4">158.1</text></g>
+            <g><title>SiT-XL · 512×512: 524.6 GFLOPs</title><path class="b-sit" d="M178.0,190 V76.0 Q178.0,72.0 182.0,72.0 H198.0 Q202.0,72.0 202.0,76.0 V190 Z"/><text class="cap" x="190" y="66.0">524.6</text></g>
+            <path class="arw bad" d="M90.0,144.3 C96.0,24.0 190.0,24.0 190.0,54.0" marker-end="url(#ah-bad)"/>
+            <path class="arw good" d="M90.0,144.3 C96.0,114.4 160.0,114.4 160.0,136.4" marker-end="url(#ah-good)"/>
+            <rect class="chip bad" x="123.3" y="29.8" width="37.8" height="17" rx="8.5"/><text class="chip-t bad" x="142.2" y="42.3">4.4×</text>
+            <rect class="chip good" x="108.3" y="107.9" width="37.8" height="17" rx="8.5"/><text class="chip-t good" x="127.2" y="120.4">1.3×</text>
+            <text class="xl" x="60" y="207">UDT</text><text class="xl" x="90" y="207">SiT</text>
+            <text class="xl" x="160" y="207">UDT</text><text class="xl" x="190" y="207">SiT</text>
+            <text class="xg" x="75" y="225">256×256</text><text class="xg" x="175" y="225">512×512</text>
+          </svg>
+        </div>
+      </div>
+      <div class="eff-legend">
+        <span><i class="sw sit"></i>SiT</span><span><i class="sw udt"></i>UDT</span>
+        <span>GFLOPs · arrows: ×GFLOPs at 512×512 relative to SiT at 256×256</span>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- ============================= ABSTRACT ============================= -->
+<section id="abstract">
+  <div class="wrap">
+    <div class="eyebrow">01 — ABSTRACT</div>
+    <h2>Why a U-Net Diffusion Transformer?</h2>
+    <p>
+      Diffusion Transformers (DiTs) have emerged as a core architecture in generative modeling due to their scalability and
+      adaptability to multimodal tasks. DiTs comprise isotropic transformer blocks, and learn representations progressively
+      across depth, where the denoising objective drives later layers to focus on fine-detail reconstruction. This results in
+      degraded representation quality and an imbalanced encoder-decoder behavior. Prior approaches such as representation
+      alignment (REPA) mitigate this by encouraging stronger early representations via training regularization.
+      Alternatively, U-Net-style DiT architectures introduce explicit multi-scale encoder-decoder structures for improved
+      convergence. But they build on standard U-Net wisdom via learnable operators for spatial downsampling, which are not
+      well-suited to transformer architectures, introducing inefficiencies and compatibility issues with components such as
+      cross-attention and representation regularization.
+    </p>
+    <p>
+      In this work, we propose <b>UDT</b>, a U-Net diffusion transformer that combines the representation power of DiTs with
+      the encoding-decoding benefits of U-Nets, through data-adaptive token merging for downsampling and upsampling, while
+      preserving the DiT token dimension. Our baseline UDT architecture outperforms existing U-Net DiTs and achieves
+      performance comparable to REPA across all model sizes. Furthermore, using architectural optimization and REPA, UDT
+      outperforms SiT's 7.9 FID at 1400 epochs (w/o CFG) within 40 epochs (~40× faster convergence) for XL model size on
+      256×256 ImageNet. Finally, it achieves strong image generation performance with CFG, reaching FID of 1.38 (320 epochs)
+      with SD-VAE and 1.35 (500 epochs) with VA-VAE, providing a new backbone for DiTs with strong empirical benefits.
+    </p>
+  </div>
+</section>
+
+<!-- ============================== METHOD ============================== -->
+<section id="method" hidden>  <!-- hidden for now; remove "hidden" to show -->
+  <div class="wrap">
+    <div class="eyebrow">02 — METHOD</div>
+    <h2>A U-Net built from tokens, not from pixels</h2>
+    <p class="narrow">
+      UDT keeps every block a standard transformer block of width <i>D</i>. Down- and up-sampling happen
+      <i>between attention and MLP</i>: encoder blocks merge the <i>r</i> most redundant tokens, decoder blocks unmerge them
+      back, and skip connections join matching encoder/decoder stages with a concat + linear projection.
+    </p>
+
+    <figure>
+      <div class="figbox"><img src="static/images/arch.jpg" alt="UDT architecture: transformer blocks with token merge in the encoder, token unmerge in the decoder, and concat + linear skip connections. Token count goes T, T−r, ..., N_merge, ..., T−r, T while width D is fixed." loading="lazy"></div>
+      <figcaption>
+        <b>UDT architecture.</b> The token count shrinks from <i>T</i> to <i>N</i><sub>merge</sub> through the encoder and
+        returns to <i>T</i> through the decoder, while the token dimension <i>D</i> never changes.
+      </figcaption>
+    </figure>
+
+    <div class="cards">
+      <div class="card">
+        <span class="tag">→ Transformer block</span>
+        <h3>Standard DiT block</h3>
+        <p>Attention + MLP at full resolution at the input and output ends, identical to DiT/SiT.</p>
+      </div>
+      <div class="card">
+        <span class="tag merge">↓ Token merge</span>
+        <h3>Encoder: (T, D) → (T−r, D)</h3>
+        <p>After attention, similar tokens are merged, so the encoder reduces tokens where the image is redundant (e.g. sky), not on a fixed grid.</p>
+      </div>
+      <div class="card">
+        <span class="tag unmerge">↑ Token unmerge</span>
+        <h3>Decoder: (T−r, D) → (T, D)</h3>
+        <p>The decoder reverses each merge to restore the full token set. Skip connections concat encoder features and project back to <i>D</i>.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ======================= TOKEN REDUCTION DEMO ======================= -->
+<section id="tokens" hidden>
+  <div class="wrap">
+    <div class="eyebrow">03 — DATA-ADAPTIVE TOKEN REDUCTION</div>
+    <h2>Tokens merge where the image is simple</h2>
+    <p class="narrow">
+      Drag through the 12 merge steps (r = 12 tokens per block). UDT keeps fine tokens on the eagle and merges the uniform
+      background into large regions. A fixed 2×2 spatial pooling, as used by prior U-Net DiTs, treats every region the same.
+    </p>
+
+    <div class="explorer" id="explorer">
+      <div class="panes">
+        <div class="pane">
+          <div class="imgwrap"><img src="static/images/merge/step_00_original.png" alt="Input image of an eagle"></div>
+          <div class="cap"><b>Input</b></div>
+        </div>
+        <div class="pane">
+          <div class="imgwrap"><img id="udtImg" src="static/images/merge/step_01_unmerged.png" alt="UDT token partition at the selected merge step"></div>
+          <div class="cap"><b>UDT (data-adaptive)</b><span class="t" id="udtT">T = 256</span></div>
+        </div>
+        <div class="pane">
+          <div class="imgwrap"><img id="gridImg" src="static/images/tokens/grid256.jpg" alt="Fixed 2×2 spatial token reduction"></div>
+          <div class="cap"><b>2×2 spatial pooling</b><span class="t" id="gridT">T = 256</span></div>
+        </div>
+      </div>
+
+      <div class="controls">
+        <button class="playbtn" id="stepPlay" aria-label="Play merge sequence">▶</button>
+        <div class="meter">
+          <input type="range" id="stepRange" min="0" max="12" value="0" step="1" aria-label="Merge step">
+          <div class="lab"><span id="stepLab">Merge step 0</span> · <span id="meterLab">256 / 256 tokens kept</span></div>
+        </div>
+      </div>
+    </div>
+
+    <figure>
+      <div class="figbox"><img src="static/images/token_vis.jpg" alt="Token partitions at encoder blocks 1, 6, 10, 14 (T = 256, 196, 148, 112) compared with 2×2 spatial token reduction (T = 256 → 64)." loading="lazy"></div>
+      <figcaption>Full figure: token partitions at encoder blocks 1, 6, 10 and 14 (<i>T</i> = 256 → 196 → 148 → 112), compared with 2×2 spatial reduction (<i>T</i> = 256 → 64).</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- ============================== RESULTS ============================= -->
+<section id="results" hidden>
+  <div class="wrap">
+    <div class="eyebrow">04 — RESULTS</div>
+    <h2>Faster convergence, strong final FID</h2>
+
+    <div style="display:grid; grid-template-columns: minmax(0,1fr) minmax(0,1.15fr); gap: 28px; align-items:center;" class="res-grid">
+      <figure style="margin:0">
+        <div class="figbox"><img src="static/images/fid_epoch.jpg" alt="FID-50K vs training epoch: UDT variants reach SiT-XL's 1400-epoch FID roughly 20×, 25× and 40× faster." loading="lazy"></div>
+        <figcaption>FID-50K (w/o CFG) vs. training epoch on ImageNet 256×256. UDT-XL/2, UDT-XL/2<sup>+</sup> and UDT-XL/2<sup>+</sup>+REPA reach SiT-XL's 1400-epoch FID about <b>20×</b>, <b>25×</b> and <b>40×</b> faster.</figcaption>
+      </figure>
+
+      <div>
+        <h3>ImageNet 256×256 · with CFG</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Model</th><th>Tokenizer</th><th>REPA</th><th class="num">Epochs</th><th class="num">FID ↓</th></tr></thead>
+            <tbody>
+              <tr><td>UDT-XL/2</td><td>SD-VAE</td><td>–</td><td class="num">500</td><td class="num">1.41</td></tr>
+              <tr><td>UDT-XL/2<sup>+</sup></td><td>SD-VAE</td><td>–</td><td class="num">350</td><td class="num">1.42</td></tr>
+              <tr><td>UDT-XL/2<sup>+</sup></td><td>SD-VAE</td><td class="yes">✓</td><td class="num">320</td><td class="num">1.38</td></tr>
+              <tr class="best"><td>UDT-XL/2<sup>+</sup></td><td>VA-VAE</td><td>–</td><td class="num">500</td><td class="num">1.35</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 style="margin-top:24px">ImageNet 512×512 · with CFG</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Model</th><th>Tokenizer</th><th>REPA</th><th class="num">FID ↓</th></tr></thead>
+            <tbody>
+              <tr class="best"><td>UDT-XL/2<sup>+</sup></td><td>SD-VAE</td><td>–</td><td class="num">1.58</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== DROP-IN ============================= -->
+<section id="dropin">
+  <div class="wrap">
+    <div class="eyebrow">02 — GENERALITY</div>
+    <h2>A drop-in backbone for isotropic DiT variants</h2>
+    <p>
+      <b><em>Drop UDT into any isotropic DiT for faster training and better generation!</em></b>
+    </p>
+    <!-- Drop-in results (FID-50K). Bold rows = UDT. -->
+    <div class="cards dropin">
+      <div class="card">
+        <div class="tags"><span class="pill acc">ImageNet 256×256</span><span class="pill cat">ε-prediction</span></div>
+        <h3>DiT</h3>
+        <table class="mini">
+          <thead><tr><th></th><th class="v">Epoch</th><th class="v">FID↓</th></tr></thead>
+          <tbody>
+            <tr><td>DiT-B/2</td><td class="v epc">80</td><td class="v">43.5</td></tr>
+            <tr class="u"><td>UDT-DiT-B/2</td><td class="v epc">80</td><td class="v">30.6</td></tr>
+          </tbody>
+          <tbody>
+            <tr><td>DiT-L/2</td><td class="v epc">80</td><td class="v">23.3</td></tr>
+            <tr><td>DiT-L/2 + REPA</td><td class="v epc">80</td><td class="v">15.6</td></tr>
+            <tr class="u"><td>UDT-DiT-L/2</td><td class="v epc">80</td><td class="v">13.5</td></tr>
+          </tbody>
+          <tbody>
+            <tr><td>DiT-XL/2</td><td class="v epc">80</td><td class="v">19.5</td></tr>
+            <tr><td>DiT-XL/2 + REPA</td><td class="v epc">80</td><td class="v">12.3</td></tr>
+            <tr class="u"><td>UDT-DiT-XL/2</td><td class="v epc">80</td><td class="v">11.2</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <div class="tags"><span class="pill acc">ImageNet 256×256</span><span class="pill cat">Pixel space</span></div>
+        <h3>JiT</h3>
+        <table class="mini">
+          <thead><tr><th></th><th class="v">Epoch</th><th class="v">FID↓</th><th class="v">FID*↓</th></tr></thead>
+          <tbody>
+            <tr><td>JiT-B/16<sup>†</sup></td><td class="v epc">50</td><td class="v">82.6</td><td class="v">13.6</td></tr>
+            <tr><td>JiT-B/16<sup>†</sup></td><td class="v epc">200</td><td class="v">66.1</td><td class="v">4.7</td></tr>
+            <tr class="u"><td>UDT-JiT-B/16<sup>+</sup></td><td class="v epc">100</td><td class="v">64.6</td><td class="v">6.3</td></tr>
+            <tr class="u"><td>UDT-JiT-B/16<sup>+</sup></td><td class="v epc">200</td><td class="v">58.9</td><td class="v">4.6</td></tr>
+          </tbody>
+          <tbody>
+            <tr><td>JiT-L/16<sup>†</sup></td><td class="v epc">50</td><td class="v">62.2</td><td class="v">6.9</td></tr>
+            <tr><td>JiT-L/16<sup>†</sup></td><td class="v epc">200</td><td class="v">48.0</td><td class="v">3.0</td></tr>
+            <tr class="u"><td>UDT-JiT-L/16<sup>+</sup></td><td class="v epc">50</td><td class="v">47.9</td><td class="v">5.8</td></tr>
+            <tr class="u"><td>UDT-JiT-L/16<sup>+</sup></td><td class="v epc">200</td><td class="v">37.7</td><td class="v">2.8</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <div class="tags"><span class="pill acc">ImageNet 256×256</span><span class="pill cat">Improved VAE</span></div>
+        <h3>VA-VAE</h3>
+        <table class="mini">
+          <thead><tr><th></th><th class="v">Epoch</th><th class="v">FID*↓</th><th class="v">IS*↑</th></tr></thead>
+          <tbody>
+            <tr><td>LightningDiT-XL/1<sup>†</sup></td><td class="v epc">64</td><td class="v">2.11</td><td class="v">252.3</td></tr>
+            <tr class="u"><td>UDT-XL/1<sup>+</sup></td><td class="v epc">64</td><td class="v">1.99</td><td class="v">265.8</td></tr>
+          </tbody>
+          <tbody>
+            <tr><td>LightningDiT-XL/1<sup>†</sup></td><td class="v epc">800</td><td class="v">1.35</td><td class="v">295.3</td></tr>
+            <tr class="u"><td>UDT-XL/1<sup>+</sup></td><td class="v epc">500</td><td class="v">1.35</td><td class="v">322.0</td></tr>
+          </tbody>
+        </table>
+        <hr class="card-split">
+        <div class="tags"><span class="pill coco">MSCOCO 256×256</span><span class="pill cat">Text-to-Image</span></div>
+        <h3>MMDiT</h3>
+        <table class="mini">
+          <thead><tr><th></th><th class="v">Iter.</th><th class="v">FID*↓</th></tr></thead>
+          <tbody>
+            <tr><td>MMDiT</td><td class="v epc">150K</td><td class="v">5.5</td></tr>
+            <tr class="u"><td>MMUDT</td><td class="v epc">150K</td><td class="v">4.7</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================= CITATION ============================= -->
+<section id="citation">
+  <div class="wrap">
+    <div class="eyebrow">03 — CITATION</div>
+    <h2>BibTeX</h2>
+<pre><button class="copy" data-target="bib">Copy</button><code id="bib">@article{yun2026udt,
+  title   = {UDT: Reconciling U-Nets and Diffusion Transformers with Data-Adaptive Token Reduction},
+  author  = {Yun, Junno and Al{\c{c}}alar, Ya{\c{s}}ar Utku and Ak{\c{c}}akaya, Mehmet},
+  journal = {arXiv preprint arXiv:2608.01298},
+  year    = {2026}
+}</code></pre>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div>Built on <a href="https://github.com/willisma/SiT">SiT</a>, <a href="https://github.com/sihyun-yu/REPA">REPA</a> and <a href="https://github.com/dbolya/tomesd">ToMe-SD</a>.</div>
+    <div>© 2026 Junno Yun · University of Minnesota</div>
+  </div>
+</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="static/js/unet3d.js"></script>
+<script>
+  // ---- Token explorer: 12 merge steps, r = 12 tokens per block (static/images/merge/step_XX_*.png) ----
+  (function () {
+    const T0 = 256, R = 12, STEPS = 12;
+    const $ = (id) => document.getElementById(id);
+    const file = (k) => `static/images/merge/step_${String(k + 1).padStart(2, "0")}_${k === 0 ? "unmerged" : "merge_" + k}.png`;
+    for (let k = 0; k <= STEPS; k++) new Image().src = file(k);   // preload so dragging is instant
+    new Image().src = "static/images/tokens/grid64.jpg";
+
+    const range = $("stepRange"), playBtn = $("stepPlay");
+    let timer = null;
+
+    function show(k) {
+      const t = T0 - R * k;
+      $("udtImg").src = file(k);
+      $("gridImg").src = `static/images/tokens/${k === 0 ? "grid256" : "grid64"}.jpg`;
+      $("udtT").textContent = `T = ${t}`;
+      $("gridT").textContent = `T = ${k === 0 ? 256 : 64}`;
+      $("stepLab").textContent = `Merge step ${k}`;
+      $("meterLab").textContent = `${t} / ${T0} tokens kept`;
+      range.value = k;
+    }
+    function stop() { clearInterval(timer); timer = null; playBtn.textContent = "▶"; }
+    range.addEventListener("input", () => { stop(); show(+range.value); });
+    playBtn.addEventListener("click", () => {
+      if (timer) return stop();
+      let k = +range.value >= STEPS ? 0 : +range.value;
+      show(k); playBtn.textContent = "❚❚";
+      timer = setInterval(() => { k += 1; show(k); if (k >= STEPS) stop(); }, 420);
+    });
+  })();
+
+  // ---- Copy buttons ----
+  document.querySelectorAll(".copy").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const text = document.getElementById(btn.dataset.target).innerText;
+      try { await navigator.clipboard.writeText(text); btn.textContent = "Copied"; }
+      catch (e) { btn.textContent = "Select & copy"; }
+      setTimeout(() => (btn.textContent = "Copy"), 1500);
+    });
+  });
+</script>
+
+<style>
+  /* Results grid collapses on phones */
+  @media (max-width: 760px) { .res-grid { grid-template-columns: 1fr !important; } }
+</style>
+</body>
+</html>
