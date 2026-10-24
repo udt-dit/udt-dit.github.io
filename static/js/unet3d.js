@@ -304,7 +304,11 @@
     ctx.fillText("UDT", pad, pad + fs * 1.1);
     ctx.fillStyle = "#8d96a8";
     ctx.font = `500 ${fs * 0.95}px ${FONT}`;
-    ctx.fillText("U-Net Diffusion Transformer", pad + fs * 3.9, pad + fs * 1.1);
+    const subtitle = "U-Net Diffusion Transformer with Data-Adaptive Token Reduction";
+    const subX = pad + fs * 3.9;
+    // next to "UDT" when it fits left of the Play/Replay/Download buttons, otherwise on its own line below
+    if (subX + ctx.measureText(subtitle).width <= W - 260 * DPR) ctx.fillText(subtitle, subX, pad + fs * 1.1);
+    else ctx.fillText(subtitle, pad, pad + fs * 2.6);
 
 
     // Legend (bottom-right): arrow swatches; skip is dashed like the skip brackets
