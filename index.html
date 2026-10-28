@@ -313,6 +313,7 @@
     .cards.dropin { grid-template-columns: repeat(3, 1fr); gap: 12px; }
     .card-split { border: 0; border-top: 2px solid var(--border); margin: 16px 0 14px; }
     .cards.dropin .card { padding: 16px 14px; }
+    .cards.dropin table.mini td:first-child { white-space: nowrap; }
     table.mini small.ep { display: block; font-size: 11.5px; font-weight: 500; color: var(--muted); }
     .card .tags { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
     .card h3 + table.mini { margin-top: 8px; }
@@ -463,10 +464,9 @@
       <div class="stat">
         <div class="tags"><span class="pill acc">ImageNet 256×256</span><span class="pill">w/o CFG</span></div>
         <ul class="rows udt-box">
-          <li><span class="fid"><small>FID</small>7.7</span><span class="what">at 80 epochs (<b>UDT</b>)</span><span class="trk" aria-hidden="true"><span class="ep"><i style="--w:5.7%"></i></span><span class="tk" style="--x:5.7%"></span><b class="tl c" style="--x:5.7%">80</b><span class="tk" style="--x:100%"></span><b class="tl r" style="--x:100%">1400</b><span class="shrink" style="--to:5.7%"></span></span></li>
-          <li><span class="fid"><small>FID</small>7.0</span><span class="what">at 60 epochs (<b>UDT<sup>+</sup></b>)</span><span class="trk" aria-hidden="true"><span class="ep"><i style="--w:4.3%"></i></span><span class="tk" style="--x:4.3%"></span><b class="tl c" style="--x:4.3%">60</b><span class="tk" style="--x:100%"></span><b class="tl r" style="--x:100%">1400</b><span class="shrink" style="--to:4.3%"></span></span></li>
-          <li class="best"><span class="fid"><small>FID</small>7.6</span><span class="what">at 40 epochs<br>(UDT<sup>+</sup> with REPA)</span><span class="trk" aria-hidden="true"><span class="ep"><i style="--w:2.9%"></i></span><span class="tk" style="--x:2.9%"></span><b class="tl c" style="--x:2.9%">40</b><span class="tk" style="--x:100%"></span><b class="tl r" style="--x:100%">1400</b><span class="shrink" style="--to:2.9%"></span></span></li>
-          <li class="speed-lab">20~40× faster</li>
+          <li><span class="fid"><small>FID</small>7.0</span><span class="what">at 60 epochs<br>(<b>UDT</b> <em>without</em> REPA)</span><span class="trk" aria-hidden="true"><span class="ep"><i style="--w:4.3%"></i></span><span class="tk" style="--x:4.3%"></span><b class="tl c" style="--x:4.3%">60</b><span class="tk" style="--x:100%"></span><b class="tl r" style="--x:100%">1400</b><span class="shrink" style="--to:4.3%"></span></span></li>
+          <li class="best"><span class="fid"><small>FID</small>7.6</span><span class="what">at 40 epochs<br>(UDT with REPA)</span><span class="trk" aria-hidden="true"><span class="ep"><i style="--w:2.9%"></i></span><span class="tk" style="--x:2.9%"></span><b class="tl c" style="--x:2.9%">40</b><span class="tk" style="--x:100%"></span><b class="tl r" style="--x:100%">1400</b><span class="shrink" style="--to:2.9%"></span></span></li>
+          <li class="speed-lab">25~40× faster</li>
         </ul>
         <ul class="rows">
           <li class="base flip"><span class="fid"><small>FID</small>7.9</span><span class="what">at 1400 epochs (SiT)</span><span class="trk" aria-hidden="true"><span class="ep"><i style="--w:100%"></i></span><span class="tk" style="--x:0%"></span><b class="tl l" style="--x:0%">0</b><span class="tk" style="--x:100%"></span><b class="tl r" style="--x:100%">1400</b></span></li>
@@ -479,15 +479,14 @@
         <div class="vae-box">
           <div class="group">SD-VAE</div>
           <ul class="rows">
-          <li><span class="fid"><small>FID</small>1.41</span><span class="what">&amp; IS 307.4 at 500 epochs (<b>UDT</b>)</span></li>
-          <li><span class="fid"><small>FID</small>1.42</span><span class="what">&amp; IS 308.4 at 350 epochs (<b>UDT<sup>+</sup></b>), <em>without REPA</em></span></li>
-          <li class="best"><span class="fid"><small>FID</small>1.38</span><span class="what">&amp; IS 306.3 at 320 epochs (UDT<sup>+</sup> with REPA)</span></li>
+          <li><span class="fid"><small>FID</small>1.42</span><span class="what">&amp; IS 308.4 at 350 epochs (<b>UDT</b> <em>without</em> REPA)</span></li>
+          <li class="best"><span class="fid"><small>FID</small>1.38</span><span class="what">&amp; IS 306.3 at 320 epochs (UDT with REPA)</span></li>
           </ul>
         </div>
         <div class="vae-box">
           <div class="group">VA-VAE</div>
           <ul class="rows">
-          <li class="best"><span class="fid"><small>FID</small>1.35</span><span class="what">&amp; IS 322.0 at 500 epochs (UDT<sup>+</sup>)</span></li>
+          <li class="best"><span class="fid"><small>FID</small>1.35</span><span class="what">&amp; IS 322.0 at 500 epochs (UDT)</span></li>
           </ul>
         </div>
       </div>
@@ -495,7 +494,7 @@
       <div class="stat">
         <div class="tags"><span class="pill hi">ImageNet 512×512</span><span class="pill cfg">with CFG</span></div>
         <ul class="rows">
-          <li class="best"><span class="fid"><small>FID</small>1.58</span><span class="what">&amp; IS 327.7 at 200 epochs (UDT<sup>+</sup>), <em>without REPA</em></span></li>
+          <li class="best"><span class="fid"><small>FID</small>1.58</span><span class="what">&amp; IS 327.7 at 200 epochs (UDT <em>without</em> REPA)</span></li>
         </ul>
         <table class="mini tight">
           <thead><tr><th></th><th class="v">Epoch</th><th class="v">GFLOPs</th><th class="v">FID↓</th><th class="v">IS↑</th></tr></thead>
@@ -504,8 +503,8 @@
             <tr><td>SiT-XL/2 + REPA</td><td class="v">200</td><td class="v">524.6</td><td class="v">2.10</td><td class="v">274.6</td></tr>
           </tbody>
           <tbody>
-            <tr class="u"><td>UDT-XL/2<sup>+</sup></td><td class="v">100</td><td class="v">158.1</td><td class="v">1.63</td><td class="v">320.5</td></tr>
-            <tr class="u"><td>UDT-XL/2<sup>+</sup></td><td class="v">200</td><td class="v">158.1</td><td class="v">1.58</td><td class="v">327.7</td></tr>
+            <tr class="u"><td>UDT-XL/2</td><td class="v">100</td><td class="v">158.1</td><td class="v">1.63</td><td class="v">320.5</td></tr>
+            <tr class="u"><td>UDT-XL/2</td><td class="v">200</td><td class="v">158.1</td><td class="v">1.58</td><td class="v">327.7</td></tr>
           </tbody>
         </table>
       </div>
@@ -799,7 +798,7 @@
         <div class="tags"><span class="pill acc">ImageNet 256×256</span><span class="pill cat">ε-prediction</span></div>
         <h3>DiT</h3>
         <table class="mini">
-          <thead><tr><th></th><th class="v">Epoch</th><th class="v">FID↓</th></tr></thead>
+          <thead><tr><th></th><th class="v">Epoch</th><th class="v">FID↓<small class="ep">(w/o CFG)</small></th></tr></thead>
           <tbody>
             <tr><td>DiT-B/2</td><td class="v epc">80</td><td class="v">43.5</td></tr>
             <tr class="u"><td>UDT-DiT-B/2</td><td class="v epc">80</td><td class="v">30.6</td></tr>
@@ -821,18 +820,18 @@
         <div class="tags"><span class="pill acc">ImageNet 256×256</span><span class="pill cat">Pixel space</span></div>
         <h3>JiT</h3>
         <table class="mini">
-          <thead><tr><th></th><th class="v">Epoch</th><th class="v">FID↓</th><th class="v">FID*↓</th></tr></thead>
+          <thead><tr><th></th><th class="v">Epoch</th><th class="v">FID↓<small class="ep">(w/o CFG)</small></th><th class="v">FID*↓<small class="ep">(w/ CFG)</small></th></tr></thead>
           <tbody>
-            <tr><td>JiT-B/16<sup>†</sup></td><td class="v epc">50</td><td class="v">82.6</td><td class="v">13.6</td></tr>
-            <tr><td>JiT-B/16<sup>†</sup></td><td class="v epc">200</td><td class="v">66.1</td><td class="v">4.7</td></tr>
-            <tr class="u"><td>UDT-JiT-B/16<sup>+</sup></td><td class="v epc">100</td><td class="v">64.6</td><td class="v">6.3</td></tr>
-            <tr class="u"><td>UDT-JiT-B/16<sup>+</sup></td><td class="v epc">200</td><td class="v">58.9</td><td class="v">4.6</td></tr>
+            <tr><td>JiT-B/16</td><td class="v epc">50</td><td class="v">82.6</td><td class="v">13.6</td></tr>
+            <tr><td>JiT-B/16</td><td class="v epc">200</td><td class="v">66.1</td><td class="v">4.7</td></tr>
+            <tr class="u"><td>UDT-JiT-B/16</td><td class="v epc">100</td><td class="v">64.6</td><td class="v">6.3</td></tr>
+            <tr class="u"><td>UDT-JiT-B/16</td><td class="v epc">200</td><td class="v">58.9</td><td class="v">4.6</td></tr>
           </tbody>
           <tbody>
-            <tr><td>JiT-L/16<sup>†</sup></td><td class="v epc">50</td><td class="v">62.2</td><td class="v">6.9</td></tr>
-            <tr><td>JiT-L/16<sup>†</sup></td><td class="v epc">200</td><td class="v">48.0</td><td class="v">3.0</td></tr>
-            <tr class="u"><td>UDT-JiT-L/16<sup>+</sup></td><td class="v epc">50</td><td class="v">47.9</td><td class="v">5.8</td></tr>
-            <tr class="u"><td>UDT-JiT-L/16<sup>+</sup></td><td class="v epc">200</td><td class="v">37.7</td><td class="v">2.8</td></tr>
+            <tr><td>JiT-L/16</td><td class="v epc">50</td><td class="v">62.2</td><td class="v">6.9</td></tr>
+            <tr><td>JiT-L/16</td><td class="v epc">200</td><td class="v">48.0</td><td class="v">3.0</td></tr>
+            <tr class="u"><td>UDT-JiT-L/16</td><td class="v epc">50</td><td class="v">47.9</td><td class="v">5.8</td></tr>
+            <tr class="u"><td>UDT-JiT-L/16</td><td class="v epc">200</td><td class="v">37.7</td><td class="v">2.8</td></tr>
           </tbody>
         </table>
       </div>
@@ -841,21 +840,21 @@
         <div class="tags"><span class="pill acc">ImageNet 256×256</span><span class="pill cat">Improved VAE</span></div>
         <h3>VA-VAE</h3>
         <table class="mini">
-          <thead><tr><th></th><th class="v">Epoch</th><th class="v">FID*↓</th><th class="v">IS*↑</th></tr></thead>
+          <thead><tr><th></th><th class="v">Epoch</th><th class="v">FID*↓<small class="ep">(w/ CFG)</small></th><th class="v">IS*↑<small class="ep">(w/ CFG)</small></th></tr></thead>
           <tbody>
-            <tr><td>LightningDiT-XL/1<sup>†</sup></td><td class="v epc">64</td><td class="v">2.11</td><td class="v">252.3</td></tr>
-            <tr class="u"><td>UDT-XL/1<sup>+</sup></td><td class="v epc">64</td><td class="v">1.99</td><td class="v">265.8</td></tr>
+            <tr><td>LightningDiT-XL/1</td><td class="v epc">64</td><td class="v">2.11</td><td class="v">252.3</td></tr>
+            <tr class="u"><td>UDT-XL/1</td><td class="v epc">64</td><td class="v">1.99</td><td class="v">265.8</td></tr>
           </tbody>
           <tbody>
-            <tr><td>LightningDiT-XL/1<sup>†</sup></td><td class="v epc">800</td><td class="v">1.35</td><td class="v">295.3</td></tr>
-            <tr class="u"><td>UDT-XL/1<sup>+</sup></td><td class="v epc">500</td><td class="v">1.35</td><td class="v">322.0</td></tr>
+            <tr><td>LightningDiT-XL/1</td><td class="v epc">800</td><td class="v">1.35</td><td class="v">295.3</td></tr>
+            <tr class="u"><td>UDT-XL/1</td><td class="v epc">500</td><td class="v">1.35</td><td class="v">322.0</td></tr>
           </tbody>
         </table>
         <hr class="card-split">
         <div class="tags"><span class="pill coco">MSCOCO 256×256</span><span class="pill cat">Text-to-Image</span></div>
         <h3>MMDiT</h3>
         <table class="mini">
-          <thead><tr><th></th><th class="v">Iter.</th><th class="v">FID*↓</th></tr></thead>
+          <thead><tr><th></th><th class="v">Iter.</th><th class="v">FID*↓<small class="ep">(w/ CFG)</small></th></tr></thead>
           <tbody>
             <tr><td>MMDiT</td><td class="v epc">150K</td><td class="v">5.5</td></tr>
             <tr class="u"><td>MMUDT</td><td class="v epc">150K</td><td class="v">4.7</td></tr>
